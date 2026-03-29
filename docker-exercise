@@ -163,3 +163,414 @@ Task 4: Create a container with tmpfs mount and verify it
 
 docker run -d -it --name tmpmount --mount type=tmpfs,destination=/app nginx:latest
 docker container inspect tmpmount
+====================================================
+DCA -Storage
+======================================================
+
+LAB 1: 
+Check Your Storage Driver
+docker info | grep -i "Storage Driver"
+Expected: Storage Driver: overlay2
+
+LAB 2: Change Storage Driver
+sudo systemctl stop docker
+sudo vi /etc/docker/daemon.json
+# add following lines
+{
+  "storage-driver": "overlay2"
+}
+sudo systemctl start docker
+docker info
+
+LAB 3: Install & Configure Devicemapper
+sudo yum install -y lvm2 device-mapper-persistent-data
+sudo vi /etc/docker/daemon.json
+# add 
+{
+  "storage-driver": "devicemapper"
+}
+
+sudo systemctl restart docker
+docker info
+
+LAB 4: Check Thin Pool
+lsblk
+lvs
+
+# use case : Loop-lvm → testing and  Direct-lvm → production
+
+
+LAB 5: Block Storage Simulation (Docker Volume)
+docker volume create db-data
+
+docker run -d -v db-data:/var/lib/mysql mysql
+
+LAB 6: Object Storage Simulation (Optional)
+S3, Azure Blob
+
+LAB 7: Inspect Layers
+docker pull nginx
+docker image inspect nginx
+cd /var/lib/docker/overlay2
+ls
+# Containers = Layers + Thin writable layer”
+
+LAB 8: Create & Use Volume
+
+docker volume create mydata
+docker volume inspect mydata
+docker run -it -v mydata:/app busybox
+echo "Hello DevOps" > /app/test.txt
+exit
+
+docker run -it -v mydata:/app busybox
+cat /app/test.txt
+
+LAB 9: Bind Mount
+
+mkdir /host-data
+docker run -it -v /host-data:/app busybox
+
+| Type       | Use         |
+| ---------- | ----------- |
+| Volume     | Production  |
+| Bind mount | Dev/testing |
+
+LAB 10: Check Usage
+
+LAB 10: Check Usage 
+docker system df
+docker system df -v
+
+LAB 11: Cleanup Commands
+#Remove stopped containers
+docker container prune
+
+#Remove unused images
+docker image prune
+
+#Remove everything unused
+docker system prune -a
+
+LAB 12: Remove Volumes
+docker volume prune
+
+LAB 13:Clean Build Cache
+docker builder prune
+# Aggressive Cleanup
+docker builder prune -a
+
+LAB 14 : Limit CPU, Memory & Storage for Docker Container
+--------------------------------------------------------
+Task 1: Limit CPU & Memory
+
+docker run -it --name resource-test --cpus="0.5" --memory="256m" busybox
+
+# --cpus="0.5" → container can use 50% of 1 CPU
+# --memory="256m" → max RAM = 256 MB
+
+docker inspect resource-test
+docker stats
+
+Task 2: Simulate High CPU Usage
+
+docker run -d --name cpu-test --cpus="0.5" busybox sh -c "while true; do :; done"
+
+docker stats
+
+Task 3: Simulate Memory Limit
+
+docker run -it --memory="100m" busybox
+
+# run inside the container
+dd if=/dev/zero of=/bigfile bs=1M count=200
+# Container will crash / OOM (Out of Memory)
+
+Task 4: Limit Storage (Writable Layer)
+docker run -it --storage-opt size=200M ubuntu
+
+# Test Storage Limit run inside the container
+fallocate -l 300M bigfile
+
+# The container  can only write 200 MB , Prevents disk exhaustion
+
+Task 5: Volume Size Control
+
+Option 1: Use LVM (Advanced)
+Create logical volume with fixed size
+Mount to Docker
+
+Option 2: Use Disk Partition
+mount -o size=500M tmpfs /mnt/limited
+
+docker run -it -v /mnt/limited:/data busybox
+
+Task 6: Combine Everything
+
+docker run -d --name prod-container --cpus="1" --memory="512m" --storage-opt size=300M nginx
+
+docker inspect prod-container
+docker stats
+
+========================================================
+Netowrking
+========================================================
+
+Lab 4: Docker Networking 
+
+Task 1: Create a new docker bridge and check connectivity between containers of same bridge
+
+docker network ls
+docker network create --driver bridge ct-bridge1
+docker network inspect ct-bridge1
+docker network ls
+docker run -it --network ct-bridge1 --name=ct-c1 busybox
+Press Ctrl+P+Q, to switch back to Host
+docker run -it --network ct-bridge1 --name=ct-c2 busybox
+Press Ctrl+P+Q, to switch back to Host
+docker network inspect ct-bridge1
+docker ps
+docker attach ct-c2
+ip addr
+ping -c 5 ct-c1
+Press Ctrl+P+Q, to switch back to Host
+
+
+Task 2: Create a new docker bridge and check connectivity between containers of different bridges
+
+docker network create --driver bridge ct-bridge2
+docker run -it --network ct-bridge2 --name=ct-c3 busybox
+Press Ctrl+P+Q, to switch back to Host
+docker run -it --network ct-bridge2 --name=ct-c4 busybox 
+Press Ctrl+P+Q, to switch back to Host
+docker attach ct-c4
+ping -c 5 ct-c3
+ip addr
+ping -c 5 ct-c1
+ping -c 5 ct-c2
+Press Ctrl+P+Q, to switch back to Host
+
+
+Task 3: Using 'Docker network connect' command create a successful connection between containers of different bridges
+
+docker network ls
+docker network connect ct-bridge2 ct-c1
+docker network inspect ct-bridge2
+docker attach ct-c1
+ping -c 5 ct-c4
+ip addr
+ip route
+
+Task 4: Launch a container to host network
+
+docker run -it --network host --name=ct-c5 busybox
+ip addr
+ifconfig
+Press Ctrl+P+Q, to switch back to Host
+docker network inspect host
+
+Task 5: Launch a container to none network 
+
+docker run -it --network none --name=ct-c6 busybox
+ip addr
+Press Ctrl+P+Q, to switch back to Host
+
+Lab 5: Building a Dockerfile to setup an Ubuntu container with WordPress application
+Task 1: Deploying MySQL and WordPress containers
+
+
+mkdir wordpress
+cd wordpress
+vi Dockerfile
+
+#Content of Dockerfile to paste
+
+FROM ubuntu:18.04
+MAINTAINER ADMIN "admin@cloudthat.com"
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+apt-get -q -y install apache2 \
+php7.2 \
+php7.2-fpm \
+php7.2-mysql \
+libapache2-mod-php7.2
+ADD http://wordpress.org/latest.tar.gz /tmp
+RUN tar xzvf /tmp/latest.tar.gz -C /tmp  \
+&& cp -R /tmp/wordpress/* /var/www/html
+RUN rm /var/www/html/index.html && \
+chown -R www-data:www-data /var/www/html
+EXPOSE 80
+CMD ["/bin/bash","-c","service apache2 start && sleep 5000"]
+
+
+#End of Dockerfile
+
+# You can download the above Dockerfile from S3 using - wget https://hpe-content.s3.ap-south-1.amazonaws.com/Dockerfile
+
+docker build -t ct-wordpress:v1 .
+docker image ls
+docker network create --driver bridge ct-bridge 
+docker run -d --network ct-bridge --name mysql -e MYSQL_DATABASE=wordpress -e MYSQL_USER=admin -e MYSQL_PASSWORD=password -e MYSQL_ROOT_PASSWORD=password mysql:5.7
+
+docker ps 
+docker run -d --network ct-bridge -p 80:80 ct-wordpress:v1
+docker ps
+
+Task 6: Pushing the image to DockerHub
+
+# create dockerhub account once you login create repository then login into your terminal
+docker login -u martuj123
+docker tag ct-wordpress:v1 <replace your dockerhub account name>/ct-wordpress:v1
+docker image ls
+
+docker push <replace your dockerhub account name>/ct-wordpress:v1
+
+docker image ls
+docker image rm <replace your dockerhub account name>/ct-wordpress:v1 ct-wordpress:v1
+# docker image rm -f martuj123/ct-wordpress:v1 ct-wordpress:v1
+docker run -d -p 8080:80 <replace your dockerhub account name>/ct-wordpress:v1
+docker stop < replace container id/name >
+docker container rm < replace container id/name >
+docker image ls
+docker image rm < replace image id/name > < replace image id/name >
+docker image ls
+docker image ls -a
+
+Exercise 4: Install Jenkins using Docker Image
+=====================================================
+Task:1 Install Jenkins using Docker Image
+==========================================
+sudo mkdir  /jenkins_home
+sudo chmod 777 /jenkins_home
+ls  -ld  /jenkins_home
+
+install the Jenkins using the below command
+==============================================
+
+sudo docker run -d -t -p 8080:8080 -p 50000:50000 -v /jenkins_home:/var/jenkins_home  jenkins/jenkins:lts-jdk11
+ 
+description of command
+----------------------
+• -p port maping 8080 -for Jenkins
+• -d port run the container in background.
+• -t docker to keep the container running.
+• -p maping 50000  -for agents 
+• -v  volume for storing data locally i.e /jenkins_home need to be created
+• /var/jenkins_home maping to local dir
+• Jenkins:lts-jdk11 -image and tag
+
+Run the below command to get the container ID
+------------------------------------
+sudo docker ps
+
+###############################
+Task2 : Configure Jenkins
+###############################
+Now login into the Jenkins  container using below command and get the 
+password for Jenkins server using cat command and path.
+---------------------------------------------
+sudo docker exec -it containerid /bin/bash
+
+cat /var/jenkins_home/secrets/initialAdminPassword
+ 
+# Now, go to the browser and enter Jenkins URL 
+http://54.173.143.23:8080/
+http://public-ip-ofinstance:8080/
+
+Lab:3- install prometheus
+------------------------
+docker run -d -u root --name prometheus -p 9090:9090 -v prometheus_config:/etc/prometheus prom/prometheus
+
+go to web browser and access the prometheus web UI
+
+http://3.110.207.70:9090
+=================================================================
+Task 3 Docker images examples
+
+Create directory
+
+docker-test/
+│
+├── frontend/
+├── backend/
+├── auth/
+├── worker/
+
+
+1. ubuntu@DCA:~$ cat docker-test/frontend/Dockerfile
+# frontend/Dockerfile
+FROM nginx:latest
+COPY index.html /usr/share/nginx/html/index.html
+
+ubuntu@DCA:~$ cat docker-test/frontend/index.html
+<!-- frontend/index.html -->
+<h1>Corporate App - Frontend</h1>
+<p>Connected to Backend API</p>
+
+2. ubuntu@DCA:~$ cat docker-test/backend/Dockerfile
+# backend/Dockerfile
+FROM python:3.9
+WORKDIR /app
+COPY app.py .
+RUN pip install flask
+CMD ["python", "app.py"]
+
+ubuntu@DCA:~$ cat docker-test/backend/app.py
+# backend/app.py
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Backend API Running"
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+
+3. ubuntu@DCA:~$ cat docker-test/auth/Dockerfile
+# auth/Dockerfile
+FROM node:18
+WORKDIR /app
+COPY app.js .
+CMD ["node", "app.js"]
+
+ubuntu@DCA:~$ cat docker-test/auth/app.js
+// auth/app.js
+console.log("Auth Service Running (Login Simulation)");
+ubuntu@DCA:~$
+
+4.ubuntu@DCA:~$ cat docker-test/worker/Dockerfile
+# worker/Dockerfile
+FROM alpine:latest
+CMD ["sh", "-c", "while true; do echo Processing Orders...; sleep 5; done"]
+ubuntu@DCA:~$
+
+# now build an image
+docker build -t corp-frontend ./frontend
+
+docker build -t corp-backend ./backend
+
+docker build -t corp-auth ./auth
+
+docker build -t corp-worker ./worker
+
+# run a container
+
+# Frontend
+docker run -d -p 8080:80 --name frontend corp-frontend
+
+# Backend
+docker run -d -p 5000:5000 --name backend corp-backend
+
+# Auth
+docker run -d --name auth corp-auth
+
+# Worker
+docker run -d --name worker corp-worker
+
+# test container
+
+Frontend → http://localhost:8080
+Backend → http://localhost:5000
+docker logs worker
+docker logs auth
